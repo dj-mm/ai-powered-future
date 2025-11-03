@@ -1,0 +1,352 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>AI Future Personality Predictor</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700&family=Poppins:wght@400;600&display=swap');
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+
+        body {
+            font-family: 'Poppins', sans-serif;
+            color: #fff;
+            background: #000;
+            overflow-x: hidden;
+        }
+
+        canvas { position: fixed; top: 0; left: 0; z-index: 0; }
+
+        .container {
+            position: relative;
+            z-index: 1;
+            max-width: 450px;
+            margin: 8vh auto 60px;
+            background: rgba(255, 255, 255, 0.08);
+            border: 1px solid rgba(0, 255, 255, 0.3);
+            backdrop-filter: blur(15px);
+            border-radius: 15px;
+            box-shadow: 0 0 40px rgba(0,255,255,0.25);
+            padding: 35px 30px;
+            text-align: center;
+            animation: fadeIn 1s ease;
+        }
+
+        .title { font-family: 'Orbitron', sans-serif; text-transform: uppercase; color: #00eaff; margin-bottom: 10px; }
+        .subtitle { font-size: 14px; opacity: 0.85; margin-bottom: 20px; }
+
+        input, select {
+            width: 100%;
+            padding: 10px;
+            border-radius: 8px;
+            border: none;
+            margin: 6px 0 14px 0;
+            background: rgba(255,255,255,0.1);
+            color: #fff;
+            outline: none;
+            appearance: none;
+        }
+
+        select option { color: #000; }
+
+        label { text-align: left; display: block; font-weight: 500; margin-bottom: 3px; }
+
+        button {
+            padding: 12px;
+            border: none;
+            border-radius: 10px;
+            background: linear-gradient(90deg, #00eaff, #007bff);
+            font-weight: 600;
+            cursor: pointer;
+            transition: 0.3s;
+            color: #000;
+        }
+        button:hover { box-shadow: 0 0 20px #00eaff; transform: scale(1.05); }
+
+        .hidden { display: none; }
+
+        .scanner {
+            width: 100%;
+            height: 8px;
+            background: linear-gradient(90deg, #00eaff, transparent);
+            border-radius: 10px;
+            animation: scan 1.2s linear infinite;
+            margin-bottom: 20px;
+        }
+        @keyframes scan { 0% { transform: translateX(-100%); } 100% { transform: translateX(100%); } }
+
+        .loading-text { font-family: 'Orbitron'; color: #00eaff; animation: pulse 1s infinite alternate; }
+        @keyframes pulse { from { opacity: 0.5; } to { opacity: 1; } }
+
+        pre {
+            text-align: left;
+            white-space: pre-wrap;
+            font-family: 'Poppins';
+            color: #c4faff;
+            border-left: 2px solid #00eaff;
+            padding-left: 10px;
+            animation: fadeIn 1s ease;
+            margin-bottom: 20px;
+        }
+
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
+
+        footer {
+            text-align: center;
+            padding: 15px 0;
+            color: #00eaff;
+            font-family: 'Orbitron', sans-serif;
+            letter-spacing: 1px;
+            position: relative;
+            z-index: 1;
+        }
+        footer span { color: #ff79c6; }
+    </style>
+</head>
+<body>
+    <canvas id="stars"></canvas>
+
+    <div class="container">
+        <h1 class="title">🔮 Future Personality Predictor</h1>
+        <p class="subtitle">Let our AI scan your aura and reveal your future insights...</p>
+
+        <form id="predictForm">
+            <label>👤 Name:</label>
+            <input type="text" id="name" required placeholder="Enter your full name" />
+
+            <label>🎂 Date of Birth:</label>
+            <input type="date" id="dob" required />
+
+            <label>🎨 Favorite Color:</label>
+            <select id="color" required>
+                <option value="">Select your color</option>
+                <option>Red</option>
+                <option>Blue</option>
+                <option>Green</option>
+                <option>Black</option>
+                <option>Yellow</option>
+                <option>Purple</option>
+            </select>
+
+            <label>💫 Current Mood:</label>
+            <select id="mood" required>
+                <option value="">Select your mood</option>
+                <option>Happy</option>
+                <option>Calm</option>
+                <option>Focused</option>
+                <option>Adventurous</option>
+                <option>Romantic</option>
+                <option>Mysterious</option>
+            </select>
+
+            <button type="submit">Begin Prediction 🔍</button>
+        </form>
+
+        <div id="loading" class="hidden">
+            <div class="scanner"></div>
+            <p class="loading-text">🔮 Scanning aura... Please wait</p>
+        </div>
+
+        <div id="result" class="hidden">
+            <h2>✨ Prediction Result</h2>
+            <pre id="report"></pre>
+            <button id="resetBtn">🔁 Try Again</button>
+        </div>
+    </div>
+
+    <footer>
+        Made with ❤️ by <span>Manash</span>
+    </footer>
+
+    <audio id="scanSound" src="sounds/scan.mp3"></audio>
+
+    <script>
+        // --- CONFIG: set to your deployed Google Apps Script web app URL ---
+        const SHEET_URL = "https://script.google.com/macros/s/AKfycbxQfkrhXRpo5Fj7bNtYoSKzo8_xDs8Oqndv2VEv_7kzYUD6-6VDMn-_0GiCS2Jcxqu2/exec";
+
+        // DOM elements
+        const form = document.getElementById("predictForm");
+        const loading = document.getElementById("loading");
+        const result = document.getElementById("result");
+        const report = document.getElementById("report");
+        const resetBtn = document.getElementById("resetBtn");
+        const scanSound = document.getElementById("scanSound");
+        const canvas = document.getElementById("stars");
+        const ctx = canvas.getContext("2d");
+
+        // Responsive canvas
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+        window.addEventListener("resize", () => {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+        });
+
+        // Moving stars background
+        const stars = Array.from({ length: 100 }, () => ({
+            x: Math.random() * canvas.width,
+            y: Math.random() * canvas.height,
+            size: Math.random() * 2,
+            speed: Math.random() * 0.4 + 0.1,
+        }));
+
+        function animateStars() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            stars.forEach(star => {
+                ctx.beginPath();
+                ctx.arc(star.x, star.y, star.size, 0, Math.PI * 2);
+                ctx.fillStyle = "#00eaff";
+                ctx.fill();
+                star.y += star.speed;
+                if (star.y > canvas.height) star.y = 0;
+            });
+            requestAnimationFrame(animateStars);
+        }
+        animateStars();
+
+        // Form submit
+        form.addEventListener("submit", (e) => {
+            e.preventDefault();
+            const name = document.getElementById("name").value.trim();
+            const dob = document.getElementById("dob").value;
+            const color = document.getElementById("color").value;
+            const mood = document.getElementById("mood").value;
+
+            if (!name || !dob || !color || !mood) return alert("Please fill all fields.");
+
+            form.classList.add("hidden");
+            loading.classList.remove("hidden");
+
+            // Play scanning sound
+            scanSound.volume = 0.7;
+            scanSound.currentTime = 0;
+            scanSound.play();
+
+            // Prepare computed fields
+            const age = calcAge(dob);
+            const zodiac = getZodiacSign(new Date(dob));
+            const lucky = getLuckyNumber(name, dob);
+
+            // Save to spreadsheet (fire and forget)
+            sendToSheet({
+                name, dob, color, mood, age, zodiac, lucky,
+                timestamp: new Date().toISOString(),
+                userAgent: navigator.userAgent
+            }).catch(err => console.warn("Sheet save failed:", err));
+
+            setTimeout(() => {
+                scanSound.pause();
+                scanSound.currentTime = 0;
+
+                loading.classList.add("hidden");
+                result.classList.remove("hidden");
+
+                const message = generatePrediction(name, dob, color, mood);
+                report.textContent = "";
+                typeWriter(report, message, 25);
+            }, 5000);
+        });
+
+        // Reset
+        resetBtn.addEventListener("click", () => {
+            form.reset();
+            result.classList.add("hidden");
+            form.classList.remove("hidden");
+            report.textContent = "";
+        });
+
+        // Send JSON to Google Apps Script web app that writes to Sheet
+        async function sendToSheet(payload) {
+            if (!SHEET_URL) {
+                console.warn("SHEET_URL not set. Replace placeholder with your Apps Script URL.");
+                return;
+            }
+            const res = await fetch(SHEET_URL, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(payload),
+            });
+            return res.json();
+        }
+
+        // Prediction logic
+        function generatePrediction(name, dob, color, mood) {
+            const age = calcAge(dob);
+            const zodiac = getZodiacSign(new Date(dob));
+            const lucky = getLuckyNumber(name, dob);
+
+            const colorEnergy = {
+                Red: "energy, passion, and ambition 🔥",
+                Blue: "calm, clarity, and loyalty 🌊",
+                Green: "growth, empathy, and balance 🌱",
+                Black: "mystery, power, and confidence 🖤",
+                Yellow: "joy, creativity, and optimism ☀️",
+                Purple: "intuition, imagination, and depth 💫",
+            };
+
+            const moodProphecy = {
+                Happy: "New opportunities are aligning with your joy ✨",
+                Calm: "Peaceful clarity brings wise choices 🌿",
+                Focused: "Your determination leads to victory ⚡",
+                Adventurous: "A bold journey awaits — trust your instinct 🌍",
+                Romantic: "Love energy is blooming around you 💞",
+                Mysterious: "Hidden truths will soon reveal your destiny 🔮",
+            };
+
+            return `🔹 Scanning Complete...
+
+        👤 Name: ${name}
+        🎂 Age: ${age}
+        ♈ Zodiac: ${zodiac}
+        🎨 Aura Color: ${color} — ${colorEnergy[color]}
+        💎 Lucky Number: ${lucky}
+
+        💫 Mood Reading:
+        ${moodProphecy[mood]}
+
+        🔮 AI Prediction:
+        ${name}, your ${color.toLowerCase()} aura merges with your ${zodiac} energy,
+        indicating a phase of personal transformation.
+        The upcoming days will test your intuition and resilience,
+        but the universe aligns in your favor.
+        Stay ${mood.toLowerCase()} — your future is unfolding beautifully.`;
+        }
+
+        // Typewriter animation
+        function typeWriter(el, text, speed) {
+            let i = 0;
+            (function typing() {
+                if (i < text.length) {
+                    el.textContent += text.charAt(i);
+                    i++;
+                    setTimeout(typing, speed);
+                }
+            })();
+        }
+
+        // Helpers
+        function calcAge(dob) {
+            const diff = Date.now() - new Date(dob).getTime();
+            return Math.floor(diff / (1000 * 60 * 60 * 24 * 365.25));
+        }
+
+        function getZodiacSign(date) {
+            const d = date.getDate(), m = date.getMonth() + 1;
+            const zodiacs = [
+                ["Capricorn", 1, 19], ["Aquarius", 2, 18], ["Pisces", 3, 20],
+                ["Aries", 4, 19], ["Taurus", 5, 20], ["Gemini", 6, 20],
+                ["Cancer", 7, 22], ["Leo", 8, 22], ["Virgo", 9, 22],
+                ["Libra", 10, 22], ["Scorpio", 11, 21], ["Sagittarius", 12, 21], ["Capricorn", 12, 31]
+            ];
+            return zodiacs.find(([sign, month, day]) => (m === month && d <= day))?.[0] || "Capricorn";
+        }
+
+        function getLuckyNumber(name, dob) {
+            const sum = name.split("").reduce((a, c) => a + c.charCodeAt(0), 0);
+            const day = new Date(dob).getDate();
+            return ((sum + day) % 9) + 1;
+        }
+    </script>
+</body>
+</html>
