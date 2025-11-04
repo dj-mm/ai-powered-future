@@ -163,7 +163,7 @@
 
     <script>
         // --- CONFIG: set to your deployed Google Apps Script web app URL ---
-        const SHEET_URL = "https://script.google.com/macros/s/AKfycbzNk8au2xUbziTDUBGtxTkgDh1J3zA3PorzV7eVwAaq4g324o-PopYFHLwbzHgWIDly/exec";
+        const SHEET_URL = "https://script.google.com/macros/s/AKfycbzA0fp743ZSZJSwOyuEJvRxME_yI6XWgko-HkjgTjJNAKRIN7hNmoE275NB9OQ09LXJ/exec";
 
         // DOM elements
         const form = document.getElementById("predictForm");
@@ -257,18 +257,31 @@
         });
 
         // Send JSON to Google Apps Script web app that writes to Sheet
-        async function sendToSheet(payload) {
-            if (!SHEET_URL) {
-                console.warn("SHEET_URL not set. Replace placeholder with your Apps Script URL.");
-                return;
-            }
-            const res = await fetch(SHEET_URL, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify(payload),
-            });
-            return res.json();
-        }
+       // Send form data to Google Apps Script (Google Sheet)
+async function sendToSheet(payload) {
+    if (!SHEET_URL) {
+        console.warn("https://script.google.com/macros/s/AKfycbzA0fp743ZSZJSwOyuEJvRxME_yI6XWgko-HkjgTjJNAKRIN7hNmoE275NB9OQ09LXJ/exec");
+        return;
+    }
+
+    const formData = new FormData();
+    for (const key in payload) {
+        formData.append(key, payload[key]);
+    }
+
+    try {
+        const res = await fetch(SHEET_URL, {
+            method: "POST",
+            body: formData,
+        });
+        const text = await res.text();
+        console.log("Sheet response:", text);
+        return text;
+    } catch (err) {
+        console.error("Failed to send data to Google Sheet:", err);
+    }
+}
+
 
         // Prediction logic
         function generatePrediction(name, dob, color, mood) {
