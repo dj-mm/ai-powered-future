@@ -140,7 +140,10 @@
                 <option>Mysterious</option>
             </select>
 
-            <button type="submit">Begin Prediction 🔍</button>
+            <!-- Honeypot to catch naive bots -->
+            <input type="text" id="website" name="website" autocomplete="off" tabindex="-1" style="display:none" />
+
+            <button type="submit" id="submitBtn">Begin Prediction 🔍</button>
         </form>
 
         <div id="loading" class="hidden">
@@ -169,6 +172,12 @@
         // --- CONFIG: set to your deployed Google Apps Script web app URL ---
         const SHEET_URL = "https://script.google.com/macros/s/AKfycbzA0fp743ZSZJSwOyuEJvRxME_yI6XWgko-HkjgTjJNAKRIN7hNmoE275NB9OQ09LXJ/exec";
 
+        // Rate-limit config
+        const ATTEMPT_KEY = "predict_attempts_v1";
+        const WINDOW_MS = 10 * 60 * 1000; // 10 minutes window
+        const MAX_ATTEMPTS = 5;
+        const MIN_INTERVAL_MS = 3000; // min seconds between submits
+
         // DOM elements
         const form = document.getElementById("predictForm");
         const loading = document.getElementById("loading");
@@ -177,7 +186,8 @@
         const resetBtn = document.getElementById("resetBtn");
         const scanSound = document.getElementById("scanSound");
         const canvas = document.getElementById("stars");
-        const ctx = canvas.getContext("2d");
+        const submitBtn = document.getElementById("submitBtn");
+        const honeypot = document.getElementById("website");
 
         // Responsive canvas
         canvas.width = window.innerWidth;
@@ -188,6 +198,7 @@
         });
 
         // Moving stars background
+        const ctx = canvas.getContext("2d");
         const stars = Array.from({ length: 100 }, () => ({
             x: Math.random() * canvas.width,
             y: Math.random() * canvas.height,
@@ -209,26 +220,97 @@
         }
         animateStars();
 
+        // Utilities for rate limiting
+        function loadAttempts() {
+            try {
+                const raw = localStorage.getItem(ATTEMPT_KEY);
+                if (!raw) return [];
+                const arr = JSON.parse(raw);
+                if (!Array.isArray(arr)) return [];
+                const now = Date.now();
+                return arr.filter(ts => now - ts <= WINDOW_MS);
+            } catch {
+                return [];
+            }
+        }
+        function saveAttempts(arr) {
+            try {
+                localStorage.setItem(ATTEMPT_KEY, JSON.stringify(arr));
+            } catch {}
+        }
+        function addAttempt() {
+            const arr = loadAttempts();
+            arr.push(Date.now());
+            saveAttempts(arr);
+        }
+        function attemptsRemaining() {
+            const arr = loadAttempts();
+            return Math.max(0, MAX_ATTEMPTS - arr.length);
+        }
+
+        // Simple client-side validation regex for name: letters, spaces, apostrophe, hyphen, dot
+        const nameRegex = /^[A-Za-z\s.'-]{2,50}$/;
+
         // Form submit
-        form.addEventListener("submit", (e) => {
+        let lastSubmitAt = 0;
+        form.addEventListener("submit", async (e) => {
             e.preventDefault();
+
+            // Basic anti-bot: honeypot
+            if (honeypot && honeypot.value.trim() !== "") {
+                // treat as bot / drop silently
+                console.warn("Honeypot triggered - aborting submit.");
+                return;
+            }
+
+            const now = Date.now();
+            if (now - lastSubmitAt < MIN_INTERVAL_MS) {
+                alert("You are submitting too quickly. Please wait a moment.");
+                return;
+            }
+
+            // Rate-limit window check
+            const arr = loadAttempts();
+            if (arr.length >= MAX_ATTEMPTS) {
+                const oldest = arr[0];
+                const waitMs = WINDOW_MS - (now - oldest);
+                const waitSec = Math.ceil(waitMs / 1000);
+                alert("Too many attempts. Please wait " + waitSec + " seconds before trying again.");
+                return;
+            }
+
             const name = document.getElementById("name").value.trim();
             const dob = document.getElementById("dob").value;
             const color = document.getElementById("color").value;
             const mood = document.getElementById("mood").value;
 
-            if (!name || !dob || !color || !mood) return alert("Please fill all fields.");
+            // Regex / sanity validations
+            if (!name || !nameRegex.test(name)) return alert("Please enter a valid name (letters, spaces, . ' -).");
+            if (!dob) return alert("Please enter a valid date of birth.");
+            const dobDate = new Date(dob);
+            if (isNaN(dobDate.getTime())) return alert("Invalid birth date.");
+            const age = calcAge(dob);
+            if (age < 3 || age > 120) return alert("Please enter a realistic age.");
+            if (!color) return alert("Please select a color.");
+            if (!mood) return alert("Please select a mood.");
+
+            // Block UI and record attempt
+            lastSubmitAt = now;
+            addAttempt();
+            submitBtn.disabled = true;
+            submitBtn.textContent = "Processing...";
 
             form.classList.add("hidden");
             loading.classList.remove("hidden");
 
-            // Play scanning sound
-            scanSound.volume = 0.7;
-            scanSound.currentTime = 0;
-            scanSound.play();
+            // Play scanning sound (try/catch to avoid errors blocking flow)
+            try {
+                scanSound.volume = 0.7;
+                scanSound.currentTime = 0;
+                scanSound.play();
+            } catch (err) { /* ignore autoplay errors */ }
 
             // Prepare computed fields
-            const age = calcAge(dob);
             const zodiac = getZodiacSign(new Date(dob));
             const lucky = getLuckyNumber(name, dob);
 
@@ -239,9 +321,15 @@
                 userAgent: navigator.userAgent
             }).catch(err => console.warn("Sheet save failed:", err));
 
+            // Simulate scan + show result. If frequent submission detected, increase wait.
+            const remainingAttempts = attemptsRemaining();
+            // basic exponential backoff for UI delay (not security-critical)
+            const baseDelay = 5000;
+            const extraDelay = (MAX_ATTEMPTS - remainingAttempts) * 2000;
+            const totalDelay = baseDelay + extraDelay;
+
             setTimeout(() => {
-                scanSound.pause();
-                scanSound.currentTime = 0;
+                try { scanSound.pause(); scanSound.currentTime = 0; } catch {}
 
                 loading.classList.add("hidden");
                 result.classList.remove("hidden");
@@ -249,7 +337,14 @@
                 const message = generatePrediction(name, dob, color, mood);
                 report.textContent = "";
                 typeWriter(report, message, 25);
-            }, 5000);
+            }, totalDelay);
+
+            // re-enable submit after a short cooldown (prevent quick resubmit)
+            const reenableAfter = Math.min(30000, 5000 + extraDelay);
+            setTimeout(() => {
+                submitBtn.disabled = false;
+                submitBtn.textContent = "Begin Prediction 🔍";
+            }, reenableAfter);
         });
 
         // Reset
@@ -264,9 +359,14 @@
        // Send form data to Google Apps Script (Google Sheet)
 async function sendToSheet(payload) {
     if (!SHEET_URL) {
-        console.warn("https://script.google.com/macros/s/AKfycbzA0fp743ZSZJSwOyuEJvRxME_yI6XWgko-HkjgTjJNAKRIN7hNmoE275NB9OQ09LXJ/exec");
+        console.warn("Missing SHEET_URL");
         return;
     }
+
+    // minimal anti-automation token (not secure server-side, but helps reduce naive bots)
+    try {
+        payload.clientToken = btoa(JSON.stringify({ t: Date.now(), ua: navigator.userAgent.slice(0,120) })).slice(0,64);
+    } catch {}
 
     const formData = new FormData();
     for (const key in payload) {
